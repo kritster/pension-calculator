@@ -147,6 +147,27 @@
   .btn-reset:focus-visible{ outline:2px solid var(--primary-2); outline-offset:1px; }
   .btn-reset svg{ width:15px; height:15px; flex:none; }
 
+  .btn-save{
+    margin-top:16px; width:100%; padding:11px 14px; border-radius:10px;
+    border:1px solid var(--accent); background:var(--accent-tint); color:var(--accent-strong);
+    font:inherit; font-size:.86rem; font-weight:700; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .btn-save:hover{ filter:brightness(0.97); }
+  .btn-save:active{ transform:translateY(1px); }
+  .btn-save svg{ width:16px; height:16px; flex:none; }
+
+  .btn-mini{
+    padding:6px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface-2); color:var(--ink-soft); font:inherit; font-size:.76rem;
+    font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+  .btn-mini:hover{ background:var(--surface); }
+  .btn-mini-warn:hover{ color:var(--warning); border-color:var(--warning); }
+
+  .table-wrap{ overflow-x:auto; }
+  table.history-table td, table.history-table th{ white-space:nowrap; }
+
   /* results */
   .results{ display:flex; flex-direction:column; gap:18px; }
   .hero{
@@ -334,6 +355,11 @@
           <div class="stat-cell"><div class="k" id="statAvgWageLabel">ค่าจ้างเฉลี่ย 60 ด. สุดท้าย</div><div class="v tabular" id="statAvgWage">-</div></div>
           <div class="stat-cell"><div class="k">วันครบเกณฑ์เกษียณ</div><div class="v" id="statDate">-</div></div>
         </div>
+
+        <button type="button" id="saveRecordBtn" class="btn-save">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+          บันทึกผลลัพธ์นี้ไว้ในประวัติ
+        </button>
       </div>
 
       <div class="card" id="careDetailCard" hidden>
@@ -436,6 +462,24 @@
           <li>เศษเดือนที่เกินจาก 180 เดือน หากครบ ≥6 เดือน ปัดขึ้นเป็น 1 ปี มิฉะนั้นปัดทิ้ง</li>
           <li>ตัวเลขทั้งหมดเป็นการประมาณการเพื่อวางแผนเบื้องต้นเท่านั้น ยอดจริงต้องอ้างอิงฐานข้อมูลของสำนักงานประกันสังคม</li>
         </ul>
+      </div>
+
+      <div class="card">
+        <div class="chart-head">
+          <h3>ประวัติการคำนวณที่บันทึกไว้</h3>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" id="copyHistoryBtn" class="btn-mini">คัดลอกเป็น JSON</button>
+            <button type="button" id="clearHistoryBtn" class="btn-mini btn-mini-warn">ล้างทั้งหมด</button>
+          </div>
+        </div>
+        <p id="historyEmpty" class="be-note">ยังไม่มีประวัติที่บันทึกไว้ — กดปุ่ม "บันทึกผลลัพธ์นี้ไว้ในประวัติ" ที่การ์ดผลลัพธ์ด้านบนเพื่อเริ่มเก็บประวัติ</p>
+        <div id="historyTableWrap" class="table-wrap" hidden>
+          <table class="ref-table history-table">
+            <thead><tr><th>บันทึกเมื่อ</th><th>สูตร</th><th>อายุเกษียณ</th><th class="num">เดือนสะสม</th><th class="num">บำนาญ/ด.</th><th></th></tr></thead>
+            <tbody id="historyTbody"></tbody>
+          </table>
+        </div>
+        <p class="be-note">ประวัตินี้บันทึกไว้ใน "เบราว์เซอร์นี้" เท่านั้น (localStorage) ไม่ sync ข้ามอุปกรณ์/เบราว์เซอร์ และจะหายไปถ้าล้างข้อมูลเว็บไซต์ของเบราว์เซอร์ — ใช้ปุ่ม "คัดลอกเป็น JSON" เพื่อสำรองข้อมูลไว้ที่อื่นได้</p>
       </div>
     </div>
   </div>
@@ -776,6 +820,148 @@
     tooltip.style.opacity = '1';
   }
   function hideTip(){ tooltip.style.opacity='0'; }
+
+  const HISTORY_KEY = 'pensionCalcHistory_v1';
+  const HISTORY_MAX = 50;
+
+  function loadHistory(){
+    try{ const raw = localStorage.getItem(HISTORY_KEY); return raw ? JSON.parse(raw) : []; }
+    catch(e){ return []; }
+  }
+  function saveHistoryArr(arr){
+    try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); }catch(e){}
+  }
+  function fmtSavedAt(iso){
+    const d = new Date(iso);
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    return d.getDate()+' '+THAI_MONTHS[d.getMonth()]+' '+(d.getFullYear()+543)+' '+hh+':'+mm;
+  }
+
+  function renderHistory(){
+    const arr = loadHistory();
+    const tbody = document.getElementById('historyTbody');
+    const empty = document.getElementById('historyEmpty');
+    const wrap = document.getElementById('historyTableWrap');
+    if(arr.length===0){
+      tbody.innerHTML = '';
+      empty.hidden = false;
+      wrap.hidden = true;
+      return;
+    }
+    empty.hidden = true;
+    wrap.hidden = false;
+    tbody.innerHTML = arr.map(r=>(
+      '<tr>'
+      + '<td>'+fmtSavedAt(r.savedAt)+'</td>'
+      + '<td>'+(r.formula==='care'?'CARE':'เดิม')+'</td>'
+      + '<td>'+r.retireAge+' ปี</td>'
+      + '<td class="num tabular">'+r.totalMonths+'</td>'
+      + '<td class="num tabular">'+(r.eligible ? fmt(r.pension) : '—')+'</td>'
+      + '<td><div style="display:flex;gap:6px;justify-content:flex-end;">'
+        + '<button type="button" class="btn-mini" data-load="'+r.id+'">โหลด</button>'
+        + '<button type="button" class="btn-mini btn-mini-warn" data-del="'+r.id+'">ลบ</button>'
+      + '</div></td>'
+      + '</tr>'
+    )).join('');
+
+    tbody.querySelectorAll('[data-load]').forEach(btn=>{
+      btn.addEventListener('click', ()=>loadRecord(btn.dataset.load));
+    });
+    tbody.querySelectorAll('[data-del]').forEach(btn=>{
+      btn.addEventListener('click', ()=>deleteRecord(btn.dataset.del));
+    });
+  }
+
+  function deleteRecord(id){
+    saveHistoryArr(loadHistory().filter(r=>r.id!==id));
+    renderHistory();
+  }
+
+  function loadRecord(id){
+    const rec = loadHistory().find(r=>r.id===id);
+    if(!rec) return;
+    document.getElementById('birthDay').value = rec.birthDay;
+    document.getElementById('birthMonth').value = rec.birthMonth;
+    document.getElementById('birthYearBE').value = rec.birthYearBE;
+    document.getElementById('startMonth').value = rec.startMonth;
+    document.getElementById('startYearBE').value = rec.startYearBE;
+    document.getElementById('gapMonths').value = rec.gapMonths;
+    document.getElementById('salary').value = rec.salary;
+    document.getElementById('growth').value = rec.growth;
+    document.getElementById('sysAvgNow').value = rec.sysAvgNow;
+    document.getElementById('sysGrowth').value = rec.sysGrowth;
+    retireSel.value = rec.retireAge;
+    formulaBtns.forEach(b=>b.classList.toggle('active', b.dataset.formula===rec.formula));
+    careFields.hidden = (rec.formula !== 'care');
+    render();
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+
+  function saveCurrentRecord(){
+    const formulaMode = document.querySelector('.formula-btn.active').dataset.formula;
+    const requiredIds = ['birthDay','birthMonth','birthYearBE','startMonth','startYearBE'];
+    const allFilled = requiredIds.every(id=>document.getElementById(id).value!=='');
+    if(!allFilled){ alert('กรุณากรอกวันเกิดและเดือน/ปีที่เริ่มส่งเงินสมทบก่อนบันทึก'); return; }
+
+    const p = readParams();
+    const calcFn = formulaMode==='care' ? calcForAgeCARE : calcForAge;
+    const selectedAge = Number(retireSel.value);
+    const sel = calcFn(p, selectedAge);
+
+    const rec = {
+      id: 'r'+Date.now()+Math.random().toString(36).slice(2,6),
+      savedAt: new Date().toISOString(),
+      formula: formulaMode,
+      birthDay:p._bDay, birthMonth:p._bMonth, birthYearBE:p._bYearBE,
+      startMonth:p._sMonth, startYearBE:p._sYearBE,
+      gapMonths:p.gapMonths, salary:p.salary, growth:p.growth,
+      sysAvgNow:p.sysAvgNow, sysGrowth:p.sysGrowth,
+      retireAge:selectedAge,
+      totalMonths:sel.totalMonths, rate:sel.rate, avgWage:sel.avgWage,
+      pension:sel.pension, eligible:sel.eligible
+    };
+
+    const arr = loadHistory();
+    arr.unshift(rec);
+    if(arr.length>HISTORY_MAX) arr.length = HISTORY_MAX;
+    saveHistoryArr(arr);
+    renderHistory();
+
+    const btn = document.getElementById('saveRecordBtn');
+    const original = btn.innerHTML;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> บันทึกแล้ว';
+    setTimeout(()=>{ btn.innerHTML = original; }, 1600);
+  }
+  document.getElementById('saveRecordBtn').addEventListener('click', saveCurrentRecord);
+
+  document.getElementById('clearHistoryBtn').addEventListener('click', ()=>{
+    if(loadHistory().length===0) return;
+    if(confirm('ต้องการล้างประวัติการคำนวณทั้งหมดหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้')){
+      saveHistoryArr([]);
+      renderHistory();
+    }
+  });
+
+  document.getElementById('copyHistoryBtn').addEventListener('click', async ()=>{
+    const text = JSON.stringify(loadHistory(), null, 2);
+    const btn = document.getElementById('copyHistoryBtn');
+    const original = btn.textContent;
+    try{
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'คัดลอกแล้ว!';
+    }catch(e){
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); btn.textContent='คัดลอกแล้ว!'; }
+      catch(e2){ btn.textContent='คัดลอกไม่สำเร็จ'; }
+      document.body.removeChild(ta);
+    }
+    setTimeout(()=>{ btn.textContent = original; }, 1600);
+  });
+
+  renderHistory();
 
   ['birthDay','birthMonth','birthYearBE','startMonth','startYearBE','gapMonths','salary','retireAge','growth','sysAvgNow','sysGrowth'].forEach(id=>{
     document.getElementById(id).addEventListener('input', render);
